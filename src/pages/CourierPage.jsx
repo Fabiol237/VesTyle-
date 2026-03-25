@@ -1,25 +1,73 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PageWrapper } from '../components/PageWrapper';
 import { MapPin, Package, Star, Camera, CheckCircle } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+import { supabase } from '../lib/supabaseClient';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
-const MOCK_ORDERS = [
-  { id: '#C231', client: 'Mireille A.', address: 'Bonapriso, Rue Flatters', items: 'iPhone 15 Pro Max', vendor: 'TechZone Douala', coords: [4.0495, 9.7381], status: 'ready' },
-  { id: '#C198', client: 'Jean-Baptiste N.', address: 'Akwa, Rue Joffre', items: 'Casque Sony WH-1000XM5', vendor: 'TechZone Douala', coords: [4.0611, 9.7259], status: 'ready' },
-];
 
 export default function CourierPage() {
   const [online, setOnline] = useState(false);
   const [activeOrder, setActiveOrder] = useState(null);
+  const [coords, setCoords] = useState([4.0511, 9.7679]);
+
+  // ID de test pour le livreur (le même que dans le seed.sql)
+  const COURIER_ID = 'e5e5e5e5-e5e5-e5e5-e5e5-e5e5e5e5e5e5';
+
+  useEffect(() => {
+    let watchId;
+
+    if (online) {
+      if ("geolocation" in navigator) {
+        watchId = navigator.geolocation.watchPosition(
+          async (pos) => {
+            const { latitude, longitude } = pos.coords;
+            setCoords([latitude, longitude]);
+
+            // Sync avec Supabase
+            try {
+              const { error } = await supabase
+                .from('courier_locations')
+                .upsert({
+                  courier_id: COURIER_ID,
+                  lat: latitude,
+                  lng: longitude,
+                  is_online: true,
+                  updated_at: new Date().toISOString()
+                }, { onConflict: 'courier_id' });
+              
+              if (error) console.error('Erreur GPS Sync:', error);
+            } catch (err) {
+              console.error('Erreur GPS:', err);
+            }
+          },
+          (err) => console.error('Erreur Geolocation:', err),
+          { enableHighAccuracy: true, maximumAge: 10000 }
+        );
+      }
+    } else {
+      // Offline : on met à jour le statut dans la DB
+      const goOffline = async () => {
+        await supabase
+          .from('courier_locations')
+          .update({ is_online: false })
+          .eq('courier_id', COURIER_ID);
+      };
+      goOffline();
+    }
+
+    return () => {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [online]);
 
   return (
     <PageWrapper variant="fade">

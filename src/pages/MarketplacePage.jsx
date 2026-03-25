@@ -8,31 +8,16 @@ import { PageWrapper } from '../components/PageWrapper';
 import { Search, SlidersHorizontal, Zap, TrendingUp, Star, Flame } from 'lucide-react';
 import { useCartStore } from '../store/useCartStore';
 
-// ─── Données mock pour que la page fonctionne hors-ligne ─────────────────
-const MOCK_VENDORS = [
-  { id: 'v1', name: 'TechZone Douala', category: 'electronique', rating: 4.9, reviews: 312, clicks: 1250, certified: true, image: 'https://picsum.photos/seed/v1/80/80' },
-  { id: 'v2', name: 'Mode & Chic', category: 'mode', rating: 4.8, reviews: 198, clicks: 980, certified: true, image: 'https://picsum.photos/seed/v2/80/80' },
-  { id: 'v3', name: 'FreshMarket', category: 'alimentation', rating: 4.7, reviews: 455, clicks: 840, certified: true, image: 'https://picsum.photos/seed/v3/80/80' },
-];
-
-const MOCK_PRODUCTS = [
-  { id: 'p1', name: 'iPhone 15 Pro Max 256GB', price: 850000, oldPrice: 1100000, category: 'electronique', vendorId: 'v1', vendorName: 'TechZone Douala', rating: 4.9, reviews: 88, stock: 4, certified: true, trending: true, image: 'https://picsum.photos/seed/p1/400/400' },
-  { id: 'p2', name: 'Robe Élégante Wax Africain', price: 25000, oldPrice: 38000, category: 'mode', vendorId: 'v2', vendorName: 'Mode & Chic', rating: 4.8, reviews: 52, stock: 12, certified: true, image: 'https://picsum.photos/seed/p2/400/400' },
-  { id: 'p3', name: 'Samsung Galaxy S24 Ultra', price: 720000, oldPrice: 890000, category: 'electronique', vendorId: 'v1', vendorName: 'TechZone Douala', rating: 4.7, reviews: 63, stock: 6, certified: true, trending: true, image: 'https://picsum.photos/seed/p3/400/400' },
-  { id: 'p4', name: 'Ensemble 3 pièces Bogolan', price: 45000, category: 'mode', vendorId: 'v2', vendorName: 'Mode & Chic', rating: 4.6, reviews: 29, stock: 8, certified: true, image: 'https://picsum.photos/seed/p4/400/400' },
-  { id: 'p5', name: 'Panier Bio Local Douala', price: 12000, oldPrice: 15000, category: 'alimentation', vendorId: 'v3', vendorName: 'FreshMarket', rating: 4.9, reviews: 141, stock: 22, certified: true, image: 'https://picsum.photos/seed/p5/400/400' },
-  { id: 'p6', name: 'Casque Sony WH-1000XM5', price: 185000, oldPrice: 240000, category: 'electronique', vendorId: 'v1', vendorName: 'TechZone Douala', rating: 4.8, reviews: 74, stock: 3, certified: true, image: 'https://picsum.photos/seed/p6/400/400' },
-];
 
 function formatPrice(amount) {
-  return new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
+  return new Intl.NumberFormat('fr-FR').format(amount ?? 0) + ' FCFA';
 }
 
 // Algorithme de classement des promotions : max économie absolue
 function sortByDiscount(products) {
   return [...products]
-    .filter((p) => p.oldPrice)
-    .sort((a, b) => (b.oldPrice - b.price) - (a.oldPrice - a.price));
+    .filter((p) => p.old_price)
+    .sort((a, b) => (b.old_price - b.price) - (a.old_price - a.price));
 }
 
 const FILTERS = [
@@ -50,14 +35,62 @@ export default function MarketplacePage() {
 
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [vendors, setVendors] = useState(MOCK_VENDORS);
-  const [products, setProducts] = useState(MOCK_PRODUCTS);
+  const [vendors, setVendors] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      try {
+        // 1. Fetch Vendors in this city
+        const { data: vData, error: vErr } = await supabase
+          .from('vendors')
+          .select('*')
+          .eq('city_id', cityId)
+          .eq('is_active', true)
+          .order('click_count', { ascending: false });
+
+        if (vErr) throw vErr;
+        setVendors(vData || []);
+
+        // 2. Fetch Products for these vendors (via join)
+        const { data: pData, error: pErr } = await supabase
+          .from('products')
+          .select('*, vendors(name, is_certified)')
+          .eq('is_published', true);
+        
+        if (pErr) throw pErr;
+
+        // On filtre par ville côté client car le join eq sur nested table est plus complexe en select simple
+        const cityProducts = (pData || []).filter(p => vendors.some(v => v.id === p.vendor_id) || vData.some(v => v.id === p.vendor_id));
+        
+        // Remapping pour compatibilité ProductCard
+        const mappedProducts = cityProducts.map(p => ({
+          ...p,
+          vendorName: p.vendors?.name || 'Vendeur Inconnu',
+          certified: p.vendors?.is_certified || false,
+          image: p.images?.[0] || `https://picsum.photos/seed/${p.id}/400/400`,
+          oldPrice: p.old_price, // Compatibilité avec l'ancien code
+          trending: p.is_trending
+        }));
+
+        setProducts(mappedProducts);
+      } catch (err) {
+        console.error('Erreur Supabase:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [cityId]);
 
   // La marketplace affiche les vendeurs & produits filtrés
   const filteredProducts = products.filter((p) => {
     const matchFilter = activeFilter === 'all' ? true
       : activeFilter === 'trending' ? p.trending
-      : p.category === activeFilter;
+      : p.category_id === activeFilter;
     const matchSearch = search
       ? p.name.toLowerCase().includes(search.toLowerCase()) || p.vendorName.toLowerCase().includes(search.toLowerCase())
       : true;
@@ -71,7 +104,18 @@ export default function MarketplacePage() {
       <div style={{ paddingTop: 80, paddingBottom: 100, minHeight: '100dvh' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
 
-          {/* ─── Hero de la ville ─── */}
+          {loading ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <motion.div
+                animate={{ opacity: [0.3, 0.7, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              >
+                Initialisation de la marketplace à {city.name}...
+              </motion.div>
+            </div>
+          ) : (
+            <>
+              {/* ─── Hero de la ville ─── */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -200,6 +244,8 @@ export default function MarketplacePage() {
             )}
           </section>
 
+            </>
+          )}
         </div>
       </div>
     </PageWrapper>

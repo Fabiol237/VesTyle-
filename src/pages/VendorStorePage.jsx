@@ -6,25 +6,6 @@ import ProductCard from '../components/ProductCard';
 import { PageWrapper } from '../components/PageWrapper';
 import { useCartStore } from '../store/useCartStore';
 
-const MOCK_VENDORS = {
-  v1: {
-    id: 'v1', name: 'TechZone Douala', category: 'Électronique', rating: 4.9, reviews: 312, clicks: 1250, certified: true,
-    banner: 'https://picsum.photos/seed/banner1/1200/400',
-    avatar: 'https://picsum.photos/seed/v1/200/200',
-    address: 'Akwa, av. du Général de Gaulle, Douala',
-    coords: [4.0611, 9.7259],
-    whatsapp: '237699000001',
-    bio: 'Spécialiste en téléphones, tablettes et accessoires haut de gamme. Tous nos produits sont importés directement et authentifiés. Livraison disponible dans tout Douala.',
-    hours: 'Lun–Sam : 8h–20h  |  Dim : 10h–18h',
-    totalSoldThisWeek: 34,
-  },
-};
-
-const VENDOR_PRODUCTS = [
-  { id: 'p1', name: 'iPhone 15 Pro Max 256GB', price: 850000, oldPrice: 1100000, category: 'electronique', vendorId: 'v1', vendorName: 'TechZone Douala', rating: 4.9, reviews: 88, stock: 4, certified: true, trending: true, image: 'https://picsum.photos/seed/p1/400/400' },
-  { id: 'p3', name: 'Samsung Galaxy S24 Ultra', price: 720000, oldPrice: 890000, category: 'electronique', vendorId: 'v1', vendorName: 'TechZone Douala', rating: 4.7, reviews: 63, stock: 6, certified: true, image: 'https://picsum.photos/seed/p3/400/400' },
-  { id: 'p6', name: 'Casque Sony WH-1000XM5', price: 185000, oldPrice: 240000, category: 'electronique', vendorId: 'v1', vendorName: 'TechZone Douala', rating: 4.8, reviews: 74, stock: 3, certified: true, image: 'https://picsum.photos/seed/p6/400/400' },
-];
 
 export default function VendorStorePage() {
   const { vendorId } = useParams();

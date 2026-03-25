@@ -5,21 +5,62 @@ import { Star, Share2, MessageCircle, MapPin, ShoppingCart, Package, ChevronLeft
 import { useCartStore } from '../store/useCartStore';
 import { PageWrapper } from '../components/PageWrapper';
 
-const MOCK_PRODUCTS = {
-  p1: { id: 'p1', name: 'iPhone 15 Pro Max 256GB', price: 850000, oldPrice: 1100000, category: 'electronique', vendorId: 'v1', vendorName: 'TechZone Douala', vendorWhatsapp: '237699000001', rating: 4.9, reviews: 88, stock: 4, certified: true, trending: true, description: 'Le dernier flagship Apple. Processeur A17 Pro, Dynamic Island, triple capteur photo ProRAW. Déverrouillé tout opérateur. Garantie 12 mois vérifiée par TechZone.', images: ['https://picsum.photos/seed/p1a/500/500','https://picsum.photos/seed/p1b/500/500','https://picsum.photos/seed/p1c/500/500'], image: 'https://picsum.photos/seed/p1/400/400' },
-};
+import { supabase } from '../lib/supabaseClient';
 
 function formatPrice(amount) {
-  return new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
+  return new Intl.NumberFormat('fr-FR').format(amount ?? 0) + ' FCFA';
 }
 
 export default function ProductPage() {
   const { id } = useParams();
   const addItem = useCartStore((s) => s.addItem);
-  const product = MOCK_PRODUCTS[id] || { id, name: 'Produit', price: 10000, vendorId: 'v1', vendorName: 'Boutique', stock: 5, description: 'Description du produit.', images: [`https://picsum.photos/seed/${id}/500/500`], image: `https://picsum.photos/seed/${id}/500/500` };
-
+  const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [activeImg, setActiveImg] = useState(0);
   const [added, setAdded] = useState(false);
+
+  useEffect(() => {
+    async function fetchProduct() {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*, vendors(*)')
+          .eq('id', id)
+          .single();
+
+        if (error) throw error;
+
+        // Remapping pour l'UI
+        const mapped = {
+          ...data,
+          vendorName: data.vendors?.name || 'Vendeur Inconnu',
+          vendorWhatsapp: data.vendors?.whatsapp || '237600000000',
+          certified: data.vendors?.is_certified || false,
+          image: data.images?.[0] || `https://picsum.photos/seed/${data.id}/400/400`,
+          oldPrice: data.old_price,
+          rating: 4.8, // Mocké car pas encore de système d'avis complet
+          reviews: 12
+        };
+        setProduct(mapped);
+      } catch (err) {
+        console.error('Erreur produit:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchProduct();
+  }, [id]);
+
+  if (loading) return (
+    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
+      <motion.p animate={{ opacity: [0.4, 0.8, 0.4] }} transition={{ repeat: Infinity, duration: 1.5 }}>
+        Chargement de l'article...
+      </motion.p>
+    </div>
+  );
+
+  if (!product) return <div style={{ padding: 100, textAlign: 'center' }}>Produit introuvable.</div>;
 
   const images = product.images || [product.image];
   const discount = product.oldPrice ? Math.round((1 - product.price / product.oldPrice) * 100) : null;

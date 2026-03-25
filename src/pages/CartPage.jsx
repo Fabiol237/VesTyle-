@@ -14,6 +14,8 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
+import { supabase } from '../lib/supabaseClient';
+
 const deliveryIcon = L.divIcon({ html: '<span style="font-size:1.8rem">🛵</span>', className: '', iconAnchor: [14, 14] });
 const homeIcon = L.divIcon({ html: '<span style="font-size:1.5rem">🏠</span>', className: '', iconAnchor: [12, 12] });
 const shopIcon = L.divIcon({ html: '<span style="font-size:1.5rem">🏪</span>', className: '', iconAnchor: [12, 12] });
@@ -25,29 +27,34 @@ function AnimatedMarker({ start, end }) {
   const markerRef = useRef(null);
   const progress = useRef(0);
   const rafRef = useRef(null);
+  const lastEnd = useRef(end);
 
   useEffect(() => {
-    progress.current = 0;
+    // Si la destination change, on reset la progression pour une transition fluide
+    if (lastEnd.current[0] !== end[0] || lastEnd.current[1] !== end[1]) {
+      progress.current = 0;
+      lastEnd.current = end;
+    }
+
     const animate = () => {
-      progress.current = Math.min(progress.current + 0.003, 1);
+      progress.current = Math.min(progress.current + 0.05, 1); // Plus rapide pour le live
       if (markerRef.current) {
         markerRef.current.setLatLng([
-          lerp(start[0], end[0], progress.current),
-          lerp(start[1], end[1], progress.current),
+          lerp(markerRef.current.getLatLng().lat, end[0], progress.current),
+          lerp(markerRef.current.getLatLng().lng, end[1], progress.current),
         ]);
       }
       if (progress.current < 1) rafRef.current = requestAnimationFrame(animate);
     };
     rafRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [start[0], start[1], end[0], end[1]]);
+  }, [end[0], end[1]]);
 
   return <Marker position={start} icon={deliveryIcon} ref={markerRef} />;
 }
 
-function LiveMap({ vendorCoords, clientCoords }) {
-  const shopPos = vendorCoords || [4.0611, 9.7259];
-  const homePos = clientCoords || [4.0495, 9.7381];
+function LiveMap({ courierPos, shopPos = [4.0611, 9.7259], homePos = [4.0495, 9.7381] }) {
+  const currentPos = courierPos || shopPos;
   const mid = [(shopPos[0] + homePos[0]) / 2, (shopPos[1] + homePos[1]) / 2];
 
   return (
@@ -56,7 +63,7 @@ function LiveMap({ vendorCoords, clientCoords }) {
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
         <Marker position={shopPos} icon={shopIcon} />
         <Marker position={homePos} icon={homeIcon} />
-        <AnimatedMarker start={shopPos} end={homePos} />
+        <AnimatedMarker start={currentPos} end={currentPos} />
         <Polyline positions={[shopPos, homePos]} color="var(--accent)" weight={3} dashArray="6 8" opacity={0.7} />
       </MapContainer>
     </div>
@@ -68,6 +75,43 @@ function formatPrice(amount) { return new Intl.NumberFormat('fr-FR').format(amou
 export default function CartPage() {
   const { items, updateQuantity, removeItem, getItemsByVendor } = useCartStore();
   const byVendor = getItemsByVendor();
+  const [courierPos, setCourierPos] = useState([4.0511, 9.7679]);
+
+  // ID de test pour le livreur (le même que dans le seed.sql)
+  const COURIER_ID = 'e5e5e5e5-e5e5-e5e5-e5e5-e5e5e5e5e5e5';
+
+  useEffect(() => {
+    // 1. Charger la position initiale
+    const fetchInitialPos = async () => {
+      const { data } = await supabase
+        .from('courier_locations')
+        .select('*')
+        .eq('courier_id', COURIER_ID)
+        .single();
+      
+      if (data) setCourierPos([data.lat, data.lng]);
+    };
+    fetchInitialPos();
+
+    // 2. Écouter les mises à jour en temps réel
+    const channel = supabase
+      .channel('realtime_gps')
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'courier_locations',
+        filter: `courier_id=eq.${COURIER_ID}` 
+      }, (payload) => {
+        if (payload.new && payload.new.is_online) {
+          setCourierPos([payload.new.lat, payload.new.lng]);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   if (items.length === 0) {
     return (
@@ -99,7 +143,7 @@ export default function CartPage() {
             </div>
             <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: 700, background: 'rgba(5,150,105,0.12)', padding: '4px 12px', borderRadius: 999 }}>● EN DIRECT</span>
           </div>
-          <LiveMap />
+          <LiveMap courierPos={courierPos} />
         </motion.div>
 
         {/* ─── Articles par Vendeur ─── */}
